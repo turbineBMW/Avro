@@ -333,6 +333,8 @@ impl ChatsView {
         self.list.connect_row_selected(move |_, row| {
             let Some(row) = row else { return };
             let Some(id) = (unsafe { row.data::<i64>("chat-id").map(|p| *p.as_ref()) }) else { return };
+            // rebuild_list re-selects the open chat's new row; that is not a new open.
+            if me.st.borrow().current == Some(id) { return; }
             me.open(id);
         });
         // composer
@@ -539,10 +541,11 @@ impl ChatsView {
                 let Some(c) = st.chats.get(id) else { continue };
                 let row = self.chat_row(c, &st);
                 self.list.append(&row);
-                if Some(*id) == selected { self.list.select_row(Some(&row)); }
                 rows.insert(*id, row);
             }
         }
+        // Select outside the borrow: row-selected runs its handler synchronously.
+        if let Some(row) = selected.and_then(|id| rows.get(&id)) { self.list.select_row(Some(row)); }
         self.st.borrow_mut().rows = rows;
         adj.set_value(scroll);
         let loading = { let st = self.st.borrow(); st.loading_chats && !st.all_chats_loaded };
