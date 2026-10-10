@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Avro
+Comment=Telegram for the desktop
+Exec=avro
+Icon=dev.turbinebmw.Avro
+Terminal=false
+Type=Application
+Categories=Network;Chat;GTK;
+StartupNotify=true

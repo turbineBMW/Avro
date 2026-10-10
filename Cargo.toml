@@ -1,0 +1,24 @@
+[package]
+name = "avro"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+adw = { version = "0.9", package = "libadwaita", features = ["v1_7"] }
+gtk4 = { version = "0.11", features = ["v4_18"] }
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+async-channel = "2"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "hickory-dns"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.23"
+libloading = "0.8"
+qrcode = { version = "0.14", default-features = false }
+directories = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
