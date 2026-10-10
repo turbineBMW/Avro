@@ -47,6 +47,7 @@ cargo run -- login --qr           # headless: QR code to scan from Telegram on t
 cargo run -- probe                # list chats, then tail live updates
 cargo run -- probe CHAT_ID        # dump recent messages of one chat
 cargo run -- send CHAT_ID hello there
+cargo run -- spam-check CHAT_ID   # what the spam filter would send about a chat, and Haiku's verdict
 cargo run -- logout
 RUST_LOG=avro=debug cargo run -- probe   # see every request
 AVRO_TEST_DC=1 cargo run          # Telegram's test servers (separate accounts)
@@ -95,6 +96,23 @@ Avro follows the active Omarchy theme by default, including its palette and ligh
 exactly like Bubo. Turn off **Preferences → Appearance → Follow Omarchy theme** to use the
 system libadwaita appearance. A theme can ship `avro.css` to replace the generated colours.
 
+## Spam filter
+
+**Preferences → Spam filter** screens messages from strangers with Claude Haiku. A stranger is
+someone who isn't a contact, a bot or Telegram itself, in a private chat you've never written in.
+Their name, bio, account age and phone country (from Telegram's "Report spam" bar), profile photo
+and latest messages go to `claude -p --model haiku`, which answers spam, unsure or legit. The
+notification waits for the answer. **Flag** labels likely spam in the notification. **Block**
+blocks the sender, reports the chat and archives it, with an Undo toast. Every decision is listed
+under **Review decisions**, and anyone you unblock there is never screened again.
+
+The stranger's text is untrusted, so `claude` runs with no tools, MCP servers or settings in an
+empty directory (`~/.cache/avro/spam-check`), and only its schema-checked verdict is read back.
+Fill in **Who might message you out of the blue** (for example "new hires asking about our work
+apps") so genuine cold messages get through. It needs Claude Code installed and logged in, and
+uses that account. The log is kept in `~/.local/share/avro/spam-log.json`.
+`cargo test -- --ignored live_haiku` checks the prompt against the real model.
+
 ## How it works
 
 1. **TDLib does the protocol.** MTProto, encryption, the local SQLite cache, update-gap recovery
@@ -122,7 +140,8 @@ system libadwaita appearance. A theme can ship `avro.css` to replace the generat
 - [x] Photos, stickers (WebP, WebM; Lottie shown as its emoji), GIFs, videos, voice notes, audio, files
 - [x] Desktop notifications honouring Telegram's mute settings (click to open, copy login codes)
 - [x] New-chat picker: contacts, @usernames, phone numbers; leave/delete chats; mark as read
-- [x] Headless `login` / `probe` / `send` / `logout`
+- [x] Spam filter for strangers (Claude Haiku via the `claude` CLI): flag or block, review and undo
+- [x] Headless `login` / `probe` / `send` / `logout` / `spam-check`
 - [ ] Sponsored messages in channels (needed by the API terms before Avro is published)
 - [ ] Replies, reactions, editing, forwarding, archive and folders, secret chats, calls
 

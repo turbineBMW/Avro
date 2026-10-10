@@ -129,6 +129,10 @@ pub struct User {
     pub status: UserStatus,
     pub profile_photo: Option<ProfilePhoto>,
     pub is_contact: bool,
+    /// Telegram's own "Scam"/"Fake" labels.
+    pub verification_status: Option<VerificationStatus>,
+    /// The official support account.
+    pub is_support: bool,
     #[serde(rename = "type")]
     pub kind: Tag,
 }
@@ -142,6 +146,15 @@ impl User {
     pub fn username(&self) -> Option<&str> { self.usernames.as_ref()?.active_usernames.first().map(String::as_str) }
     pub fn is_bot(&self) -> bool { self.kind.t == "userTypeBot" }
 }
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct VerificationStatus { pub is_scam: bool, pub is_fake: bool }
+
+/// `getUserFullInfo`: only the bio.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct UserFullInfo { pub bio: Option<FormattedText> }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
@@ -187,6 +200,8 @@ pub struct Chat {
     pub last_read_outbox_message_id: i64,
     pub is_marked_as_unread: bool,
     pub notification_settings: ChatNotificationSettings,
+    /// Telegram's "Report spam / Block" bar, shown on new chats from strangers.
+    pub action_bar: Option<ChatActionBar>,
 }
 
 impl Chat {
@@ -218,6 +233,24 @@ impl ChatType {
     pub fn is_channel(&self) -> bool { matches!(self, Self::Supergroup { is_channel: true, .. }) }
     pub fn user_id(&self) -> Option<i64> { match self { Self::Private { user_id } | Self::Secret { user_id } => Some(*user_id), _ => None } }
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "@type")]
+pub enum ChatActionBar {
+    #[serde(rename = "chatActionBarReportSpam")] ReportSpam,
+    #[serde(rename = "chatActionBarReportAddBlock")] ReportAddBlock { #[serde(default)] account_info: Option<AccountInfo> },
+    #[serde(other)] Other,
+}
+
+impl ChatActionBar {
+    /// Telegram offers to report the chat: it came from someone you've never talked to.
+    pub fn is_report(&self) -> bool { !matches!(self, Self::Other) }
+}
+
+/// What Telegram tells you about a stranger who started a chat with you.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AccountInfo { pub registration_month: i32, pub registration_year: i32, pub phone_number_country_code: String }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
@@ -524,6 +557,7 @@ pub enum Update {
     #[serde(rename = "updateChatReadOutbox")] ChatReadOutbox { chat_id: i64, last_read_outbox_message_id: i64 },
     #[serde(rename = "updateChatIsMarkedAsUnread")] ChatIsMarkedAsUnread { chat_id: i64, is_marked_as_unread: bool },
     #[serde(rename = "updateChatUnreadMentionCount")] ChatUnreadMentionCount { chat_id: i64, unread_mention_count: i32 },
+    #[serde(rename = "updateChatActionBar")] ChatActionBar { chat_id: i64, #[serde(default)] action_bar: Option<ChatActionBar> },
     #[serde(rename = "updateChatNotificationSettings")] ChatNotificationSettings { chat_id: i64, notification_settings: ChatNotificationSettings },
     #[serde(rename = "updateScopeNotificationSettings")] ScopeNotificationSettings { scope: NotificationScope, notification_settings: ScopeNotificationSettings },
     #[serde(rename = "updateNewMessage")] NewMessage { message: Box<Message> },
@@ -549,6 +583,10 @@ pub struct Messages { pub total_count: i32, pub messages: Vec<Option<Message>> }
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Users { pub user_ids: Vec<i64> }
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct FoundChatMessages { pub total_count: i32, pub messages: Vec<Message> }
 
 
 #[cfg(test)]
@@ -577,6 +615,17 @@ mod tests {
         assert_eq!(m.content.kind, "messageDice");
         assert!(matches!(m.content.data, MessageContent::Other));
         assert!(matches!(m.sender_id, MessageSender::User { user_id: 5 }));
+    }
+
+    #[test]
+    fn action_bars_carry_account_info() {
+        let u: Update = serde_json::from_str(r#"{"@type":"updateChatActionBar","chat_id":9,"action_bar":{"@type":"chatActionBarReportAddBlock","can_unarchive":false,"account_info":{"@type":"accountInfo","registration_month":9,"registration_year":2026,"phone_number_country_code":"PH","last_name_change_date":0,"last_photo_change_date":0}}}"#).unwrap();
+        let Update::ChatActionBar { chat_id: 9, action_bar: Some(ChatActionBar::ReportAddBlock { account_info: Some(a) }) } = u else { panic!("{u:?}") };
+        assert_eq!((a.registration_year, a.phone_number_country_code.as_str()), (2026, "PH"));
+        let u: Update = serde_json::from_str(r#"{"@type":"updateChatActionBar","chat_id":9,"action_bar":null}"#).unwrap();
+        assert!(matches!(u, Update::ChatActionBar { action_bar: None, .. }));
+        let b: ChatActionBar = serde_json::from_str(r#"{"@type":"chatActionBarReportSpam","can_unarchive":true}"#).unwrap();
+        assert!(b.is_report());
     }
 
     #[test]
