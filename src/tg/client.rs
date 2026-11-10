@@ -240,6 +240,28 @@ impl Client {
         self.call_as(json!({"@type": "createPrivateChat", "user_id": user_id, "force": false})).await
     }
 
+    pub async fn bio(&self, user_id: i64) -> Result<String> {
+        Ok(self.call_as::<UserFullInfo>(json!({"@type": "getUserFullInfo", "user_id": user_id})).await?.bio.map(|b| b.text).unwrap_or_default())
+    }
+    /// Whether `sender` has ever posted in the chat (asks the server, not just the local cache).
+    pub async fn has_posted(&self, chat_id: i64, sender: i64) -> Result<bool> {
+        let r: FoundChatMessages = self.call_as(json!({"@type": "searchChatMessages", "chat_id": chat_id, "topic_id": null, "query": "",
+            "sender_id": {"@type": "messageSenderUser", "user_id": sender}, "from_message_id": 0, "offset": 0, "limit": 1, "filter": null})).await?;
+        Ok(r.total_count > 0 || !r.messages.is_empty())
+    }
+    pub async fn set_blocked(&self, user_id: i64, blocked: bool) -> Result<()> {
+        let list = if blocked { json!({"@type": "blockListMain"}) } else { Value::Null };
+        self.ok(json!({"@type": "setMessageSenderBlockList", "sender_id": {"@type": "messageSenderUser", "user_id": user_id}, "block_list": list})).await
+    }
+    /// Report a chat as spam the way its "Report spam" bar does: no option, no messages.
+    pub async fn report_spam(&self, chat_id: i64) -> Result<()> {
+        self.ok(json!({"@type": "reportChat", "chat_id": chat_id, "option_id": "", "message_ids": [], "text": ""})).await
+    }
+    pub async fn set_archived(&self, chat_id: i64, archived: bool) -> Result<()> {
+        let list = if archived { json!({"@type": "chatListArchive"}) } else { json!({"@type": "chatListMain"}) };
+        self.ok(json!({"@type": "addChatToList", "chat_id": chat_id, "chat_list": list})).await
+    }
+
     // ── files ──
 
     /// Download a file and wait for it; TDLib keeps it on disk, so later calls return at once.

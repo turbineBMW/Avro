@@ -4,6 +4,7 @@ mod notify;
 mod omarchy;
 mod rt;
 mod settings;
+mod spam;
 mod tg;
 mod ui;
 
@@ -23,6 +24,7 @@ fn main() -> anyhow::Result<()> {
         Some("probe") => return rt::block_on(cli_probe(args.get(2).and_then(|s| s.parse().ok()))),
         Some("send") => return rt::block_on(cli_send(args.get(2).and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("usage: avro send CHAT_ID text…"))?, args[3..].join(" "))),
         Some("logout") => return rt::block_on(cli_logout()),
+        Some("spam-check") => return rt::block_on(cli_spam_check(args.get(2).and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("usage: avro spam-check CHAT_ID"))?)),
         _ => {}
     }
     // Single-instance: TDLib locks its database, so a second launch just raises the first window.
@@ -227,6 +229,25 @@ async fn cli_send(chat: i64, text: String) -> anyhow::Result<()> {
     shutdown(&client, &events).await?;
     println!("sent (message {})", result?);
     Ok(())
+}
+
+/// `avro spam-check CHAT_ID` — show what the spam filter would send about a chat and what
+/// Haiku says, without acting on it.
+async fn cli_spam_check(chat: i64) -> anyhow::Result<()> {
+    let (client, events) = connected().await?;
+    let result = async {
+        let chat = client.get_chat(chat).await?;
+        let Some(s) = spam::suspect(&client, &chat).await? else { println!("not screened: a group, a contact, a bot, or a chat you've written in"); return Ok(()) };
+        let context = settings::Settings::load().spam_context;
+        println!("{}", spam::describe(&context, &s));
+        println!("({} image{})", s.images.len(), if s.images.len() == 1 { "" } else { "s" });
+        let claude = spam::find_claude().ok_or_else(|| anyhow::anyhow!("`claude` not found on PATH"))?;
+        let v = spam::classify(&claude, &context, &s).await?;
+        println!("→ {:?}: {}", v.judgement, v.reason);
+        anyhow::Ok(())
+    }.await;
+    shutdown(&client, &events).await?;
+    result
 }
 
 async fn cli_logout() -> anyhow::Result<()> {

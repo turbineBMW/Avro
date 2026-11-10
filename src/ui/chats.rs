@@ -3,6 +3,8 @@
 //! TDLib pushes state rather than answering queries: chats, users and groups arrive as
 //! updates and are kept here in plain maps, from which the sidebar is rebuilt (coalesced to
 //! one rebuild per main-loop turn, since a login can bring hundreds of updates at once).
+mod spam;
+
 use super::state::{Media, action_text, fmt_size, fmt_time, media_of, presence, to_markup};
 use crate::tg::client::{Client, FileKind};
 use crate::tg::types::*;
@@ -89,6 +91,7 @@ pub struct ChatsView {
     new_chat: gtk4::Button,
     /// Messages dated before this are backlog TDLib is catching up on, not news.
     started: i64,
+    spam: spam::Screen,
 }
 
 /// Keep only what a dialler would: a leading `+` and digits. `None` if the text doesn't look
@@ -283,7 +286,7 @@ impl ChatsView {
         Self { widget, win: win.clone(), client, events, on_closed: RefCell::new(None), st: Rc::default(), list, list_scroll, list_dirty: Cell::new(false),
             thread, thread_scroll, scroll_target: Cell::new(ScrollTarget::Free), textures: Rc::default(), animations: Rc::default(), paths: Rc::default(), avatars: Rc::default(),
             thread_title, entry, emoji_btn, send, attach, gif_btn, toast, banner, side_stack, content_stack, composer,
-            settings: Rc::new(RefCell::new(crate::settings::Settings::load())), notifier: crate::notify::Notifier::new(), new_chat, started }
+            settings: Rc::new(RefCell::new(crate::settings::Settings::load())), notifier: crate::notify::Notifier::new(), new_chat, started, spam: spam::Screen::new() }
     }
 
     pub fn set_on_closed(&self, f: impl Fn() + 'static) { *self.on_closed.borrow_mut() = Some(Box::new(f)); }
@@ -413,7 +416,11 @@ impl ChatsView {
         let current = self.st.borrow().current;
         let is_current = |id: i64| current == Some(id);
         match u {
-            Update::NewChat { chat } => { self.st.borrow_mut().chats.insert(chat.id, *chat); self.queue_rebuild(); }
+            Update::NewChat { chat } => { let id = chat.id; self.st.borrow_mut().chats.insert(id, *chat); self.queue_rebuild(); self.screen_backlog(id); }
+            Update::ChatActionBar { chat_id, action_bar } => {
+                if let Some(c) = self.st.borrow_mut().chats.get_mut(&chat_id) { c.action_bar = action_bar; }
+                self.screen_backlog(chat_id);
+            }
             Update::ChatTitle { chat_id, title } => {
                 if let Some(c) = self.st.borrow_mut().chats.get_mut(&chat_id) { c.title = title; }
                 if is_current(chat_id) { self.refresh_header(); }
@@ -442,7 +449,7 @@ impl ChatsView {
                 self.st.borrow_mut().scope_mute[i] = notification_settings.mute_for;
                 self.queue_rebuild();
             }
-            Update::NewMessage { message } => { self.maybe_notify(&message); self.push_message(*message); }
+            Update::NewMessage { message } => { if !self.screen_message(&message) { self.maybe_notify(&message, None); } self.push_message(*message); }
             Update::MessageSendSucceeded { message, old_message_id } => self.replace_message(old_message_id, *message),
             Update::MessageSendFailed { message, old_message_id, error } => {
                 self.toast.add_toast(adw::Toast::new(&format!("Message not sent: {}", error.message)));
@@ -984,8 +991,8 @@ impl ChatsView {
     }
 
     /// Desktop notification for an incoming message, unless it's ours, backlog, muted, or the
-    /// chat is already open in a focused window.
-    fn maybe_notify(self: &Rc<Self>, m: &Message) {
+    /// chat is already open in a focused window. `label` goes in front of the title.
+    fn maybe_notify(self: &Rc<Self>, m: &Message, label: Option<&str>) {
         if m.is_outgoing || m.date < self.started - 60 { return; }
         let st = self.st.borrow();
         if self.win.is_active() && st.current == Some(m.chat_id) { return; }
@@ -998,6 +1005,7 @@ impl ChatsView {
         drop(st);
         let otp = crate::notify::detect_otp(&text);
         if let Some(code) = &otp { title = format!("{code} · {title}"); }
+        if let Some(label) = label { title = format!("{label} · {title}"); }
         let Some(n) = &self.notifier else { return };
         n.send(crate::notify::Notice { conversation_id: m.chat_id.to_string(), title, body, otp }, &self.settings.borrow().notification_sound);
     }
@@ -1196,6 +1204,7 @@ impl ChatsView {
         });
         group.add(&sound_row); group.add(&file_row); group.add(&test);
         page.add(&group);
+        page.add(&self.spam_preferences(&dialog));
         let about = adw::PreferencesGroup::builder().title("About")
             .description("Avro is an unofficial Telegram client built on the Telegram API and TDLib. It is not made or endorsed by Telegram.").build();
         page.add(&about);

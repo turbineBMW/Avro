@@ -17,16 +17,32 @@ pub enum Sound {
     None,
 }
 
+/// What the spam filter does with messages from strangers (see `crate::spam`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SpamFilter {
+    /// Nothing is sent to Claude.
+    #[default]
+    Off,
+    /// Likely spam still notifies, labelled as such.
+    Flag,
+    /// Likely spam is blocked, reported and archived without a notification.
+    Block,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub notification_sound: Sound,
     pub follow_omarchy_theme: bool,
+    pub spam_filter: SpamFilter,
+    /// Who might legitimately message out of the blue, told to the model so it lets them through.
+    pub spam_context: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notification_sound: Sound::default(), follow_omarchy_theme: true }
+        Self { notification_sound: Sound::default(), follow_omarchy_theme: true, spam_filter: SpamFilter::Off, spam_context: String::new() }
     }
 }
 
