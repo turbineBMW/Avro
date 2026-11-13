@@ -94,7 +94,17 @@ Things worth knowing:
 
 Avro follows the active Omarchy theme by default, including its palette and light or dark mode,
 exactly like Bubo. Turn off **Preferences → Appearance → Follow Omarchy theme** to use the
-system libadwaita appearance. A theme can ship `avro.css` to replace the generated colours.
+system libadwaita appearance.
+
+A theme can add its own `avro.css`, or have one generated from `~/.config/omarchy/themed/avro.css.tpl`.
+It is layered over the generated colours, so it only needs the variables it changes. For a
+see-through chat list, set `--avro-sidebar-opacity` to a number from 0 to 1. It fades only the
+list's background, not its text, and leaves the open chat opaque:
+
+```css
+/* ~/.config/omarchy/themed/avro.css.tpl */
+:root { --avro-sidebar-opacity: 0.8; }
+```
 
 ## Spam filter
 

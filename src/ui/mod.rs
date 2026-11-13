@@ -14,10 +14,50 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Sidebar opacity: `--avro-sidebar-opacity`, a number from 0 to 1, fades the chat list's
+/// background but never its text. An Omarchy theme sets it in its `avro.css`. Written with
+/// `rgb(from …)` rather than `alpha()`, which drops the whole background when handed a
+/// percentage; this form takes one, as the parser in `omarchy::palette` does. Scoped to the
+/// split view's own pane, so sidebars nested in dialogs are left alone.
+///
+/// Below 1, `sync_transparency` also clears the window background so the desktop shows
+/// through. Everything else that was drawn on that background is repainted with it: the open
+/// chat (the content pane, whose header bar is flat), the split view should it ever collapse
+/// into a single page, and the login, connecting and error pages. Dialogs, popovers, toasts
+/// and banners paint their own backgrounds.
+const CSS: &str = "
+:root { --avro-sidebar-opacity: 1; }
+navigation-split-view > .sidebar-pane {
+    background-color: rgb(from var(--sidebar-bg-color) r g b / calc(alpha * var(--avro-sidebar-opacity)));
+}
+navigation-split-view > .sidebar-pane:backdrop {
+    background-color: rgb(from var(--sidebar-backdrop-color) r g b / calc(alpha * var(--avro-sidebar-opacity)));
+}
+window.avro-transparent { background-color: transparent; }
+window.avro-transparent navigation-split-view > .content-pane,
+window.avro-transparent navigation-split-view > navigation-view,
+window.avro-transparent stack.avro-pages > :not(navigation-split-view) {
+    background-color: var(--window-bg-color);
+}
+";
+
 pub fn build(app: &adw::Application) {
+    let css = gtk4::CssProvider::new();
+    css.load_from_string(CSS);
+    gtk4::style_context_add_provider_for_display(
+        &gtk4::gdk::Display::default().unwrap(),
+        &css,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
     let win = adw::ApplicationWindow::builder().application(app).title("Avro").default_width(1000).default_height(700).build();
-    let stack = gtk4::Stack::builder().transition_type(gtk4::StackTransitionType::Crossfade).build();
+    let stack = gtk4::Stack::builder().transition_type(gtk4::StackTransitionType::Crossfade).css_classes(["avro-pages"]).build();
     win.set_content(Some(&stack));
+    let weak = win.downgrade();
+    crate::omarchy::connect_sidebar_opacity(move |opacity| {
+        if let Some(win) = weak.upgrade() {
+            sync_transparency(&win, opacity);
+        }
+    });
     // Let TDLib close its database before the process exits: hide now, quit on
     // authorizationStateClosed (see `quit_if_closing`), or after a few seconds regardless.
     win.connect_close_request(|w| {
@@ -31,6 +71,17 @@ pub fn build(app: &adw::Application) {
     });
     win.present();
     begin(&win, &stack, Restart::Phone);
+}
+
+/// The "avro-transparent" class clears the window background, so a translucent sidebar
+/// shows the desktop rather than the window behind it.
+fn sync_transparency(win: &adw::ApplicationWindow, sidebar_opacity: f32) {
+    tracing::debug!("{} is {sidebar_opacity}", crate::omarchy::SIDEBAR_OPACITY);
+    if sidebar_opacity < 1.0 {
+        win.add_css_class("avro-transparent");
+    } else {
+        win.remove_css_class("avro-transparent");
+    }
 }
 
 thread_local! { static QUITTING: Cell<bool> = const { Cell::new(false) }; }
@@ -166,4 +217,14 @@ fn fatal(stack: &gtk4::Stack, msg: &str) -> adw::StatusPage {
     stack.add_named(&p, Some("fatal"));
     stack.set_visible_child_name("fatal");
     p
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_stylesheet_reads_the_token_the_theme_sets() {
+        let token = crate::omarchy::SIDEBAR_OPACITY;
+        assert!(super::CSS.contains(&format!(":root {{ {token}: 1; }}")));
+        assert_eq!(super::CSS.matches(&format!("var({token})")).count(), 2);
+    }
 }
