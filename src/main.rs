@@ -4,6 +4,7 @@ mod notify;
 mod omarchy;
 mod rt;
 mod settings;
+mod sidebar;
 mod spam;
 mod tg;
 mod ui;
@@ -33,6 +34,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(display) = gtk4::gdk::Display::default() {
             accent::install_fallback(&display);
             omarchy::install(&display);
+            sidebar::install(&display);
         }
     });
     app.connect_activate(|app| {

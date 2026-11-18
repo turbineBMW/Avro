@@ -1,8 +1,6 @@
 //! Follow the active Omarchy palette, using the same resolution as Rustle.
 mod palette;
 
-pub use palette::SIDEBAR_OPACITY;
-
 use adw::prelude::*;
 use gtk4::{self as gtk, gio, glib};
 use std::cell::{Cell, RefCell};
@@ -14,20 +12,12 @@ thread_local! {
     static THEME: RefCell<Option<Rc<Theme>>> = const { RefCell::new(None) };
 }
 
-/// Told the sidebar opacity on every reload that changes it.
-type OpacityListener = Box<dyn Fn(f32)>;
-
 struct Theme {
     home: PathBuf,
     enabled: Cell<bool>,
     provider: gtk::CssProvider,
     monitors: RefCell<Vec<gio::FileMonitor>>,
     pending: RefCell<Option<glib::SourceId>>,
-    /// `--avro-sidebar-opacity` as the theme states it, or 1 when it doesn't
-    /// or isn't followed. Worked out on every reload.
-    sidebar_opacity: Cell<f32>,
-    /// See [`connect_sidebar_opacity`].
-    opacity_listeners: RefCell<Vec<OpacityListener>>,
 }
 
 pub fn detected() -> bool {
@@ -50,8 +40,6 @@ pub fn install(display: &gtk::gdk::Display) {
             provider: gtk::CssProvider::new(),
             monitors: RefCell::new(Vec::new()),
             pending: RefCell::new(None),
-            sidebar_opacity: Cell::new(1.0),
-            opacity_listeners: RefCell::new(Vec::new()),
         });
         gtk::style_context_add_provider_for_display(
             display,
@@ -70,16 +58,10 @@ pub fn install(display: &gtk::gdk::Display) {
     });
 }
 
-/// Call `f` with the theme's sidebar opacity now and after every reload, so
-/// the window can drop its background while the sidebar is see-through.
-/// Without an installed theme the opacity is always 1 and `f` never runs.
-pub fn connect_sidebar_opacity(f: impl Fn(f32) + 'static) {
-    THEME.with(|cell| {
-        if let Some(theme) = cell.borrow().as_ref() {
-            f(theme.sidebar_opacity.get());
-            theme.opacity_listeners.borrow_mut().push(Box::new(f));
-        }
-    });
+/// What the active theme's own `avro.css` set `--avro-sidebar-opacity` to, back when the theme
+/// decided it (1 when it doesn't). Only read once, to carry it into the settings.
+pub fn legacy_sidebar_opacity() -> Option<f32> {
+    palette::load(&glib::home_dir()).map(|theme| theme.sidebar_opacity)
 }
 
 pub fn set_follow(enabled: bool) {
@@ -100,17 +82,11 @@ impl Theme {
             .flatten();
         self.provider
             .load_from_string(palette.as_ref().map_or("", |theme| theme.css.as_str()));
-        let opacity = palette.as_ref().map_or(1.0, |theme| theme.sidebar_opacity);
         adw::StyleManager::default().set_color_scheme(match palette {
             Some(theme) if theme.light => adw::ColorScheme::ForceLight,
             Some(_) => adw::ColorScheme::ForceDark,
             None => adw::ColorScheme::Default,
         });
-        if self.sidebar_opacity.replace(opacity) != opacity {
-            for listener in self.opacity_listeners.borrow().iter() {
-                listener(opacity);
-            }
-        }
     }
 
     fn watch(self: &Rc<Self>) {
@@ -181,8 +157,6 @@ mod tests {
             provider: gtk::CssProvider::new(),
             monitors: RefCell::new(Vec::new()),
             pending: RefCell::new(None),
-            sidebar_opacity: Cell::new(1.0),
-            opacity_listeners: RefCell::new(Vec::new()),
         });
         let errors = Rc::new(RefCell::new(Vec::new()));
         let errors_clone = errors.clone();
@@ -241,25 +215,11 @@ mod tests {
         wait_until(|| theme.provider.to_str().contains("#abcdef"));
         // The theme's own file is layered over the palette, not instead of it.
         assert!(theme.provider.to_str().contains("--window-bg-color"));
-        let seen = Rc::new(Cell::new(1.0));
-        let seen_clone = seen.clone();
-        theme
-            .opacity_listeners
-            .borrow_mut()
-            .push(Box::new(move |opacity| seen_clone.set(opacity)));
-        fs::write(
-            dir.join("avro.css"),
-            ":root { --avro-sidebar-opacity: 0.8; }",
-        )
-        .unwrap();
-        wait_until(|| seen.get() == 0.8);
-        assert_eq!(theme.sidebar_opacity.get(), 0.8);
 
         theme.enabled.set(false);
         theme.reload();
         assert_eq!(manager.color_scheme(), adw::ColorScheme::Default);
         assert!(theme.provider.to_str().trim().is_empty());
-        assert_eq!(seen.get(), 1.0);
         theme.enabled.set(true);
         theme.reload();
         assert_eq!(manager.color_scheme(), adw::ColorScheme::ForceLight);

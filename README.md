@@ -97,14 +97,13 @@ exactly like Bubo. Turn off **Preferences → Appearance → Follow Omarchy them
 system libadwaita appearance.
 
 A theme can add its own `avro.css`, or have one generated from `~/.config/omarchy/themed/avro.css.tpl`.
-It is layered over the generated colours, so it only needs the variables it changes. For a
-see-through chat list, set `--avro-sidebar-opacity` to a number from 0 to 1. It fades only the
-list's background, not its text, and leaves the open chat opaque:
+It is layered over the generated colours, so it only needs the variables it changes.
 
-```css
-/* ~/.config/omarchy/themed/avro.css.tpl */
-:root { --avro-sidebar-opacity: 0.8; }
-```
+For a see-through chat list, turn on **Preferences → Appearance → Transparent sidebar** and set
+how opaque it is with **Sidebar opacity**. It fades only the list's background, not its text,
+and leaves the open chat opaque. The setting is Avro's own, so it works without Omarchy and no
+theme changes it. (Themes used to set `--avro-sidebar-opacity`; the first launch with this
+setting carries that value over.)
 
 ## Spam filter
 
