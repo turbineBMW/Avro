@@ -13,7 +13,9 @@
 //! `~/.config/omarchy/themed/avro.css.tpl` template. It is appended after
 //! everything derived here, so whatever it states wins and whatever it leaves
 //! out keeps the palette's value: a file can restate every variable, or carry
-//! a single line such as `:root { --avro-sidebar-opacity: 0.8; }`.
+//! a single line such as `:root { --accent-bg-color: #e8894a; }`. (Its
+//! `--avro-sidebar-opacity` is only read once now, to carry it into Avro's
+//! own Transparent sidebar setting; see `sidebar`.)
 //!
 //! The resolution cascade below mirrors `omarchy-theme-color` so Avro and
 //! the rest of the desktop read an identical palette out of the same file,
